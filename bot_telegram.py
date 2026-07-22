@@ -167,7 +167,7 @@ async def z_status(update, context):
     e = "✅" if docker["running"] else "❌"
     msg = f"""<b>🎮 ZOMBOID - Status</b>
 {e} Stato: <b>{'ONLINE' if docker['running'] else 'OFFLINE'}</b>
-📌 IP: <code>95.246.185.101:{cfg.get('DefaultPort','16261')}</code>
+📌 IP: <code>YOUR_SERVER_IP:{cfg.get('DefaultPort','16261')}</code>
 🗺️ Mappa: {cfg.get('Map','Muldraugh, KY')}
 🚗 PVP: {'✅' if cfg.get('PVP')=='true' else '❌'}
 🔓 Accesso: {'Aperto' if cfg.get('Open')=='true' else 'Whitelist'}
