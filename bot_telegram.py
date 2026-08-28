@@ -39,9 +39,39 @@ def run_cmd(cmd, timeout=30):
 
 
 def is_authorized(update):
+    """Fail closed: senza una chat autorizzata configurata, nessuno passa.
+
+    La versione precedente restituiva True (accesso consentito) quando
+    AUTHORIZED_CHAT_ID non era impostato o era rimasto al placeholder — un
+    bot che puo' riavviare/spegnere una macchina reale e gestire Docker
+    restava aperto a chiunque scrivesse su Telegram se questa singola
+    variabile veniva dimenticata in fase di setup.
+    """
     if not AUTHORIZED_CHAT_ID or AUTHORIZED_CHAT_ID == "IL_TUO_CHAT_ID_QUI":
-        return True
+        return False
     return str(update.effective_user.id) == AUTHORIZED_CHAT_ID or str(update.effective_chat.id) == AUTHORIZED_CHAT_ID
+
+
+async def _reject_unauthorized(update, context):
+    """Guardiano globale: gira PRIMA di ogni altro handler (group=-1).
+
+    Trovato in revisione: is_authorized() veniva controllato solo dentro
+    /start. Nessuno degli handler dei pulsanti del menu (s_reboot,
+    s_shutdown, d_restart_docker, ecc.) lo richiamava — un utente che
+    avesse in qualunque modo attivato uno di quei callback_data (tastiera
+    inline inoltrata, chat di gruppo, replay) bypassava l'autorizzazione
+    anche a bot correttamente configurato. Questo handler intercetta OGNI
+    update, comandi e callback dei pulsanti, prima che raggiunga qualsiasi
+    altro handler — cosi' un handler aggiunto in futuro non puo' dimenticare
+    il controllo.
+    """
+    if is_authorized(update):
+        return
+    if update.callback_query:
+        await update.callback_query.answer("Non sei autorizzato.", show_alert=True)
+    elif update.effective_message:
+        await update.effective_message.reply_text("❌ Non sei autorizzato.")
+    raise ApplicationHandlerStop
 
 
 # ========== DATI SISTEMA ==========
@@ -80,7 +110,7 @@ def get_server_config():
 # ========== TASTIERA ==========
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, BotCommand
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, ApplicationHandlerStop, CommandHandler, CallbackQueryHandler, ContextTypes, TypeHandler
 
 def home_keyboard():
     return InlineKeyboardMarkup([
@@ -338,8 +368,15 @@ def main():
     if TOKEN == "IL_TUO_TOKEN_QUI":
         print("ERRORE: Imposta TELEGRAM_BOT_TOKEN")
         sys.exit(1)
+    if not AUTHORIZED_CHAT_ID or AUTHORIZED_CHAT_ID == "IL_TUO_CHAT_ID_QUI":
+        print("ERRORE: Imposta TELEGRAM_CHAT_ID — senza, il bot non ha modo di sapere chi puo' controllarlo.")
+        sys.exit(1)
 
     app = Application.builder().token(TOKEN).build()
+
+    # Guardiano globale: gira prima di ogni comando/callback (group=-1),
+    # cosi' un handler futuro non puo' dimenticare il controllo di autorizzazione.
+    app.add_handler(TypeHandler(Update, _reject_unauthorized), group=-1)
 
     # Comandi
     app.add_handler(CommandHandler("start", start))
